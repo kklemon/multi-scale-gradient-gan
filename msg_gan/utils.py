@@ -1,4 +1,7 @@
 from itertools import chain
+from pathlib import Path
+
+from torch.utils.data import DataLoader
 
 import config
 import torch
@@ -9,25 +12,7 @@ from torchvision import transforms
 from torchvision.utils import make_grid
 
 
-def multi_scale_transform_function(log2_min_scale, log2_max_scale):
-    transformations = []
-    for scale in range(log2_min_scale, log2_max_scale + 1):
-        image_size = 2 ** scale
-        transformations.append(transforms.Compose([
-            transforms.Resize((image_size, image_size)),
-            transforms.ToTensor()
-        ]))
-
-    def transform(x):
-        scales = []
-        for f in transformations:
-            scales.append(f(x))
-        return scales
-
-    return transform
-
-
-def get_dataset(dataset_name, transform=None, dataset_kwargs=None):
+def get_dataset(dataset_name, dataset_kwargs=None):
     dataset_builder = config.datasets.get(dataset_name)
     if not dataset_builder:
         raise KeyError(f'No dataset with name \'{dataset_name}\'. Available options are {list(config.datasets.keys())}')
@@ -35,7 +20,22 @@ def get_dataset(dataset_name, transform=None, dataset_kwargs=None):
     if not dataset_kwargs:
         dataset_kwargs = {}
 
-    return dataset_builder(**dataset_kwargs, transform=transform)
+    return dataset_builder(**dataset_kwargs)
+
+
+def get_transform(target_size=None):
+    transformations = []
+
+    if target_size:
+        transformations.append(transforms.Resize(target_size))
+
+    transformations += [
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
+    ]
+
+    return transforms.Compose(transformations)
 
 
 def create_multi_scale_image_grid(samples):

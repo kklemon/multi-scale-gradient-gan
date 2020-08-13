@@ -1,9 +1,23 @@
-from typing import List
-
 import torch
 import torch.nn as nn
 
-from .modules import GeneratorBlock, DiscriminatorBlock, conv, conv_transpose
+from typing import List
+from torchbox.layers import MinibatchStdDev, PixelwiseNorm, EqualizedConv2d, EqualizedConvTranspose2d
+
+
+def g_activation():
+    return nn.LeakyReLU(0.2)
+
+def d_activation():
+    return nn.LeakyReLU(0.2)
+
+
+def conv(*args, **kwargs):
+    return EqualizedConv2d(*args, **kwargs)
+
+
+def conv_transpose(*args, **kwargs):
+    return EqualizedConvTranspose2d(*args, **kwargs)
 
 
 class ExtractBlockBuilder:
@@ -15,8 +29,14 @@ class ExtractBlockBuilder:
 
 
 class SimpleExtractBlockBuilder(ExtractBlockBuilder):
-    def __call__(self, in_channels: int):
-        return conv(in_channels, self.out_channels, kernel_size=1)
+    def __call__(self, in_channels: int, norm=PixelwiseNorm):
+        return nn.Sequential(
+            conv(in_channels, in_channels // 2, kernel_size=3, padding=1),
+            g_activation(),
+            norm(),
+
+            conv(in_channels // 2, self.out_channels, kernel_size=1)
+        )
 
 
 # class BaseInjectBlock(nn.Module):
@@ -81,6 +101,77 @@ class SimpleExtractBlockBuilder(ExtractBlockBuilder):
 #         return CatLinInjectBlock(self.image_channels, prev_layer_channels)
 
 
+
+class GeneratorBlock(nn.Module):
+    def __init__(self, in_channels: int, out_channels: int, is_initial=False, norm=PixelwiseNorm):
+        super().__init__()
+
+        self.is_initial = is_initial
+
+        if is_initial:
+            blocks = [
+                conv_transpose(in_channels, out_channels, kernel_size=4),
+                g_activation(),
+
+                conv(out_channels, out_channels, kernel_size=3, padding=1),
+                g_activation(),
+                norm()
+            ]
+        else:
+            blocks = [
+                nn.Upsample(scale_factor=2.0, mode='nearest'),
+
+                conv(in_channels, out_channels, kernel_size=3, padding=1),
+                g_activation(),
+                norm(),
+
+                conv(out_channels, out_channels, kernel_size=3, padding=1),
+                g_activation(),
+                norm()
+            ]
+
+        self.blocks = nn.Sequential(*blocks)
+
+    def forward(self, input: torch.Tensor):
+        if self.is_initial and input.ndim != 4:
+            input = input.view((-1, input.size(1), 1, 1))
+        return self.blocks(input)
+
+
+class DiscriminatorBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, is_final=False, use_minibatch_std_dev=True):
+        super().__init__()
+
+        blocks = []
+
+        if use_minibatch_std_dev:
+            blocks.append(MinibatchStdDev())
+            in_channels += 1
+
+        blocks += [
+            conv(in_channels, out_channels, kernel_size=3, padding=1),
+            d_activation(),
+        ]
+
+        if is_final:
+            blocks += [
+                conv(out_channels, out_channels, kernel_size=4),
+                d_activation(),
+            ]
+        else:
+            blocks += [
+                conv(out_channels, out_channels, kernel_size=3, padding=1),
+                d_activation(),
+
+                nn.AvgPool2d(kernel_size=2)
+            ]
+
+        self.blocks = nn.Sequential(*blocks)
+
+    def forward(self, input):
+        return self.blocks(input)
+
+
 class MultiScaleGenerator(nn.Module):
     def __init__(self,
                  latent_size: int,
@@ -88,6 +179,8 @@ class MultiScaleGenerator(nn.Module):
                  extract_block_builder: ExtractBlockBuilder,
                  extract_at_indices=None):
         super().__init__()
+
+        self.depth = len(block_channels)
 
         if not extract_at_indices:
             extract_at_indices = list(range(len(block_channels)))
@@ -120,6 +213,8 @@ class MultiScaleDiscriminator(nn.Module):
                  inject_channel: int,
                  inject_at_indices=None):
         super().__init__()
+
+        self.depth = len(block_channels)
 
         if not inject_at_indices:
             inject_at_indices = list(range(len(block_channels)))

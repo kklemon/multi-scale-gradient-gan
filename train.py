@@ -12,9 +12,8 @@ from torchvision.utils import save_image
 from torchbox.utils.misc import get_default_device, setup_run
 from torchbox.utils.logging import setup_logging
 from torchbox.utils.gan import ModelWrapper, AveragedModelWrapper
-from torchbox.losses import StandardGANLoss
 
-from msg_gan.nets.msg_gan import MultiScaleGenerator, MultiScaleDiscriminator, SimpleExtractBlockBuilder
+from msg_gan.gan import MultiScaleGenerator, MultiScaleDiscriminator, SimpleExtractBlockBuilder
 from msg_gan.utils import get_dataset, multi_scale_transform_function, create_multi_scale_image_grid, init_weights
 
 
@@ -66,7 +65,7 @@ def main(args):
 
     z_sample = torch.randn(args.n_sample, args.latent_size, 1).to(device)
 
-    loss_f = StandardGANLoss(D)
+    loss_f = config.loss_functions[args.loss](D=D)
 
     logging.info('Starting training')
 
@@ -83,6 +82,8 @@ def main(args):
             for step, reals in enumerate(batches):
                 if isinstance(reals, (list, tuple)):
                     reals = reals[0]
+
+                reals = [sample.to(device) for sample in reals]
 
                 batch_size = reals[0].size(0)
 
@@ -148,15 +149,18 @@ if __name__ == '__main__':
     parser.add_argument('--device', type=str)
     parser.add_argument('--image-size', type=int, choices=list(config.model_configs.keys()), default=64)
     parser.add_argument('--epochs', type=int, default=100)
-    parser.add_argument('--batch-size', type=int, default=4)
-    parser.add_argument('--g-lr', type=float, default=0.0001)
-    parser.add_argument('--d-lr', type=float, default=0.0004)
+    parser.add_argument('--batch-size', type=int, default=32)
+    parser.add_argument('--g-lr', type=float, default=0.003)
+    parser.add_argument('--d-lr', type=float, default=0.003)
     parser.add_argument('--latent-size', type=int, default=512)
-    parser.add_argument('--log-every', type=int, default=5)
-    parser.add_argument('--sample-every', type=int, default=5)
+    parser.add_argument('--log-every', type=int, default=100)
+    parser.add_argument('--sample-every', type=int, default=1000)
     parser.add_argument('--n-sample', type=int, default=4)
     parser.add_argument('--use-ema', action='store_true')
     parser.add_argument('--num-workers', type=int, default=0)
+    parser.add_argument('--loss', choices=list(config.loss_functions.keys()), default='wgan_gp')
+    parser.add_argument('--beta1', type=float, default=0.5)
+    parser.add_argument('--beta2', type=float, default=0.999)
     args = parser.parse_args()
 
     main(args)

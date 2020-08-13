@@ -1,9 +1,13 @@
 import unittest
-
 import torch
 
-from msg_gan.nets.modules import GeneratorBlock, DiscriminatorBlock
-from msg_gan.nets.msg_gan import MultiScaleGenerator, SimpleExtractBlockBuilder, MultiScaleDiscriminator
+from msg_gan.gan import (
+    GeneratorBlock,
+    DiscriminatorBlock,
+    MultiScaleGenerator,
+    SimpleExtractBlockBuilder,
+    MultiScaleDiscriminator
+)
 
 batch_size = 32
 latent_size = 64
